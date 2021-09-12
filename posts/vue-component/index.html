@@ -1,0 +1,354 @@
+<!doctype html><html><head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<link rel=stylesheet type=text/css href=/css/bootstrap.min.css>
+<link rel=stylesheet type=text/css href=/css/style.css>
+<link rel=stylesheet href=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/themes/prism.css>
+<link rel=icon type=image/png href=/images/favicon.ico>
+<link rel=icon href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%221em%22 font-size=%2280%22>🌕</text></svg>">
+<script src=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/components/prism-core.min.js></script>
+<script src=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/plugins/autoloader/prism-autoloader.min.js></script>
+<script defer src=https://use.fontawesome.com/93f8d6d0b2.js></script>
+<title>电子月亮 | Vue 初始化：从 createElement 到 Component Tree</title>
+</head>
+<body>
+<header class="header fadeInTop content">
+<a class=no-highlight href=/>ElectronicMoon</a>
+</header>
+<main class=main>
+<div class="content-container fadeInTop">
+<div class=content>
+<h1 class=title>Vue 初始化：从 createElement 到 Component Tree</h1>
+<div class=post-meta>
+<time datetime="2019-12-19 00:00:00 +0000 UTC">Dec 19, 2019</time>
+</div>
+<p>本文介绍 Vue 组件的初始化过程</p>
+<p><strong>createComponent</strong></p>
+<p>在 <code>_createElement</code> 方法中，程序对参数 <code>tag</code> 进行判断，如果是一个原生的标签，就会按上文的分析生成一个普通的 VNode 节点；如果是一个已注册的组件名，就会走到 <code>createComponent</code> 创建一个组件 VNode</p>
+<pre><code class=language-javascript>export function createComponent(
+	Ctor: Class&lt;Component&gt; | Function | Object | void,
+	data: ?VNodeData,
+	context: Component,
+	children: ?Array&lt;VNode&gt;,
+	tag?: string
+): VNode | Array&lt;VNode&gt; | void{
+  // baseCtor 指向 Vue
+  const baseCtor = context.$options._base
+  if(isObject(Ctor)){
+    Ctor = baseCtor.extend(Ctor)
+  }
+
+	// async component
+	let asyncFactory
+  if(isUndef(Ctor.cid)){
+    asyncFactor = Ctor
+    Ctor = resolveAsyncComponent(asyncFactory, baseCtor, context)
+    if(Ctor === undefined){
+      return createAsyncPlaceholder(...)
+    }
+  }
+
+  data = data || {}
+
+  resolveConstructorOptions(Ctor)
+
+  if(isDef(data.model)){
+    transformModel(Ctor.options, data)
+  }
+
+  installComponentHooks(data)
+  // return a placeholder vnode
+  const name = Ctor.options.name || tag
+  const vnode = new VNode(
+    `vue-component-${Ctor.cid}${name ? `-${name}` : ''}`,
+    data, undefined, undefined, undefined, context,
+    { Ctor, propsData, listeners, tag, children },
+    asyncFactory
+  )
+
+  return vnode
+}
+</code></pre>
+<p><strong>Vue.extend</strong></p>
+<p>一个 Vue 组件就是对 Vue 对象的继承和扩展，Vue 使用 <code>Vue.extend</code> 构造一个 <code>Vue</code> 子类，使用原型继承方式生成一个子类的构造器 Sub 并返回，对 Sub 对象本身扩展属性，并初始化 props computed 等选项，最后将构造器缓存以便于复用</p>
+<pre><code class=language-javascript>Vue.extend = function(extendOptions: Object): Function {
+	extendOptions = extendOptios || {}
+	const Super = this
+	const SuperId = Super.cid
+	const cachedCtors = extendOptions._Ctor || (extendOptions._Ctor = {})
+	if(cachedCtors[SuperId]){
+		return cachedCtors[SuperId]
+	}
+
+	const Sub = function VueComponent(options){
+		this._init(options)
+	}
+	Sub.prototype = Object.create(Super.prototype)
+	Sub.prototype.constructor = Sub
+	Sub.cid = cid++
+	Sub.options = mergeOptions(
+		Super.options,
+		extendOptions
+	)
+	Sub['super'] = Super
+	if(Sub.options.props){
+		initProps(Sub)
+	}
+	if(Sub.options.computed){
+		initComputed(Sub)
+	}
+	Sub.extend = Super.extend
+	Sub.mixin = Super.mixin
+	Sub.use = Sub.use
+
+	cachedCtors[SuperId] = Sub
+	return Sub
+}
+</code></pre>
+<p>当实例化 Sub 时，就会执行 <code>this._init </code> 再次走到 Vue 实例化的初始化逻辑</p>
+<p><strong>实例化组件 VNode</strong></p>
+<pre><code class=language-javascript>const name = Ctor.options.name || tag
+const vnode = new VNode(
+  `vue-component-${Ctor.cid}${name ? `-${name}` : ''}`,
+  data, undefined, undefined, undefined, context,
+  { Ctor, propsData, listeners, tag, children },
+  asyncFactory
+)
+return vnode
+</code></pre>
+<p>返回的组件 VNode 是一个没有 children 的占位符 <code>vnode</code></p>
+<p><strong>createComponent</strong></p>
+<p>和 <code>createElement</code> 中的同名方法不一样，这里的 <code>createComponent</code> 是执行到 <code>createElm</code> 中用来转换真实 DOM 节点的方法</p>
+<pre><code class=language-javascript>function createElm(
+	vnode,
+	insertedVnodeQueue,
+	parentElm,
+	refElm,
+	nested,
+	ownerArray,
+	index
+) {
+	//...
+	if(createComponent(vnode, insertedVnodeQueue, parentElm, refElm)){
+		return
+	}
+  //...
+}
+</code></pre>
+<p><code>createComponent</code> 方法通过 <code>vnode.data</code> 校验传入的是否为组件 VNode，读取 data 中的 init 钩子函数并执行</p>
+<pre><code class=language-javascript>function createComponent(vnode, insertedVnodeQueue, parentElm, refElm){
+	let i = vnode.data
+	if(isDef(i)){
+		const isReactivated = isDef(vnode.componentInstance) &amp;&amp; i.keepAlive
+    // i.hook 且 hook.init 存在则判断为组件 VNode
+		if(isDef(i = i.hook) &amp;&amp; isDef(i = i.init)){
+      // 执行 init
+			i(vnode, false)
+		}
+	}
+}
+</code></pre>
+<p><strong>init hook</strong></p>
+<pre><code class=language-javascript>const componentVNodeHooks = {
+	init(vnode: VNodeWithData, hydrating: boolean): ?boolean{
+		if(
+			vnode.componentInstance &amp;&amp;
+			!vnode.componentInstance._isDestroyed &amp;&amp;
+			vnode.data.keepAlive
+		){
+			// ...keepAlive
+		} else {
+			const child = vnode.componentInstance = createComponentInstanceForVnode(
+        // 父的占位符 VNode
+				vnode,
+        // vm 实例
+				activeInstance
+			)
+			child.$mount(hydrating ? vnode.elm : undefined, hydrating)
+		}
+	}
+}
+</code></pre>
+<p><strong>createComponentInstanceForVnode</strong></p>
+<p>Init 钩子通过 <code>createComponentInstanceForVnode</code> 创建一个 Vue 实例，调用 <code>$mount</code> 挂载子组件，选项中的 <code>_parentVnode</code> 表示组件的占位节点，<code>parent</code> 表示当前激活组件的实例，Vue.js 通过一个全局变量 <code>activeInstance</code> 在上下文中保存当前激活的实例</p>
+<pre><code class=language-javascript>function createComponentInstanceForVnode (
+   vnode: any,
+   parent: any
+): Component {
+   const options: InternalComponentOptions = {
+       _isComponent: true,
+       _parentVnode: vnode,	// 占位节点
+       parent // 当前激活组件的实例（子组件的父 vm 实例）
+   }
+ // check inline-template render functions
+   ...
+   return new vnode.componentOptions.Ctor(options)
+}
+</code></pre>
+<p>这里的 <code>vnode.componentOptions.Ctor</code> 对应的就是子组件的构造函数，子组件的实例化开始，执行到 <code>_init</code> ，组件 VNode 和普通 VNode 初始化的不同之处在合并 options 和挂载过程</p>
+<pre><code class=language-javascript>Vue.prototype._init = function(options?: Object){
+	const vm: Component = this
+	if(options &amp;&amp; options._isComponent){
+		initInternalComponent(vm, options)
+	} else {
+		vm.$options = mergeOptions(
+			resolveConstructorOptions(vm.constructor),
+			options || {},
+			vm
+		)
+	}
+	//...
+	if(vm.$options.el){
+		vm.$mount(vm.$options.el)
+	}
+}
+</code></pre>
+<p><strong>initInternalComponent</strong></p>
+<pre><code class=language-javascript>export function initInternalComponent (vm: Component, options: InternalComponentOptions){
+	const opts = vm.$options = Object.create(vm.constructor.options)
+  const parentVnode = options._parentVnode
+  opts.parent = options.parent
+  opts._parentVnode = parentVnode
+
+  const vnodeComponentOptions = parentVnode.componentOptions
+  opts.propsData = vnodeComponentOptions.propsData
+  opts._parentListeners = vnodeComponentOptions.listeners
+  opts._renderChildren = vnodeComponentOptions.children
+  opts._componentTag = vnodeComponentOptions.tag
+
+  if (options.render) {
+    opts.render = options.render
+    opts.staticRenderFns = options.staticRenderFns
+  }
+}
+</code></pre>
+<p>其中 <code>opts.parent = options.parent opts._parentVnode = parentVnode</code> 是把之前通过 <code>createComponentInstanceForVnode</code> 传入的参数合并到内部的选项 $options 中</p>
+<p><strong>child.$mount</strong></p>
+<p>在 <code>_init</code> 函数最后有</p>
+<pre><code class=language-js>if (vm.$options.el) {
+   vm.$mount(vm.$options.el)
+}
+</code></pre>
+<p>组件初始化不传 el，自己执行了 $mount， <code>compoenentVNodeHooks</code> 的 <code>init</code> 钩子函数在实例化 <code>_init</code> 后，接着执行 <code>child.$mount(hydrating ? vnode.elm : undefined, hydrating)</code>，最终调用 <code>mountComponent</code>，进而执行 <code>vm._render()</code></p>
+<p><strong>vm._render()</strong></p>
+<pre><code class=language-javascript>Vue.prototype._render = function(): VNode{
+	const vm: Component = this
+	const { render, _parentVnode } = vm.$options
+
+	vm.$vnode = _parentVnode
+	let vnode
+	try{
+		vnode = render.call(vm._renderProxy, vm.$createElement)
+	} catch(e){
+		...
+	}
+
+	vnode.parent = _parentVnode
+	return vnode
+}
+</code></pre>
+<p>这里的 <code>_parentVnode</code> 就是当前组件父的占位符 VNode， <code>render.call()</code> 生成的 <code>vnode</code> 是当前组件的渲染 VNode，<code>vnode</code> 的 <code>parent</code> 指向了 <code>_parentVnode</code>，也就是 <code>vm.$vnode</code></p>
+<p>执行完 <code>vm._render</code> 生成渲染 VNode 后，接着执行 <code>vm._update</code></p>
+<p><strong>vm._update()</strong></p>
+<pre><code class=language-javascript>export let activeInstance: any = null
+// vnode 渲染 VNode
+Vue.prototype._update = function (vnode: VNode, hydrating?: boolean){
+	const vm: Component = this
+	const prevEl = vm.$el
+	const prevVnode = vm._vnode
+	const prevActiveInstance = activeInstance
+	activeInstance = vm
+	vm._vnode = vnode
+	if(!prevVnode){
+		// initial render
+		vm.$el = vm.__patch__(vm.$el, vnode, hydrating, false)
+	} else {
+    // updates
+    vm.$el = vm.__patch__(prevVnode, vnode)
+  }
+  activeInstance = prevActiveInstance
+  // update __vue__ reference
+  if(prevEl){
+    prevEl.__vue__ = null
+  }
+  if(vm.$el){
+    vm.$el.__vue__ = vm
+  }
+  // if parent is an HOC, update its $el as well
+  if (vm.$vnode &amp;&amp; vm.$parent &amp;&amp; vm.$vnode === vm.$parent._vnode) {
+    vm.$parent.$el = vm.$el
+  }
+  // updated hook is called by the scheduler to ensure that children are
+  // updated in a parent's updated hook.
+}
+</code></pre>
+<p>Vue 2.6 对 <code>lifecycleMixin()</code> 进一步抽象，把 reset 操作作为函数的返回值保存在 lifecycleMixin 作用域中</p>
+<pre><code class=language-javascript>function setActiveInstance(vm: Component){
+	const prevActiveInstance = activeInstance
+	activeInstance = vm
+	return () =&gt; {
+		activeInstance = prevActiveInstance
+	}
+}
+
+function lifecycleMixin(Vue: Class){
+  Vue.prototype._update = function(vnode, hydrating){
+    //...
+    const restoreActiveInstance = setActiveInstance(vm)
+    vm._vnode = vnode
+    if (!prevVnode) {
+      // initial render
+      vm.$el = vm.__patch__(vm.$el, vnode, hydrating, false /* removeOnly */)
+    } else {
+      // updates
+      vm.$el = vm.__patch__(prevVnode, vnode)
+    }
+    restoreActiveInstance()
+  }
+}
+</code></pre>
+<p><code>vm._vnode = vnode</code> 其中 <code>vnode</code> 是通过<code>vm._render()</code> 返回的组件渲染VNode，<code>vm._vnode</code> 和 <code>vm.$vnode</code> 的关系就是一种父子关系，<code>vm._vnode.parent = vm.$vnode</code></p>
+<p><code>activeInstance</code> 作用是保持当前上下文正在激活的 Vue 实例，是在 <code>lifecycle</code> 模块的全局变量，在之前我们调用 <code>createComponentInstanceForVnode</code> 方法的时候从 <code>lifecycle</code> 模块获取，并作为参数传入。Vue 整个初始化是一个深度遍历的过程，在实例化子组件的过程中，它需要知道上下文的 Vue 实例是什么，并把它作为子组件的父 Vue 实例。在对子组件的实例化过程会调用 <code>initInternalComponentvm, options)</code> 合并 <code>options</code>，把 <code>parent</code> 存到 <code>vm.$options</code> 中，在 $mount 前会调用 <code>initLifecycle(vm)</code> 建立父子关系</p>
+<p><strong>initLifecycle</strong></p>
+<pre><code class=language-javascript>export function initLifecycle(vm: Component){
+	const options = vm.$options
+	let parent = options.parent
+	if(parent &amp;&amp; !options.abstract){
+		while(parent.$options.abstract &amp;&amp; parent.$parent){
+      parent = parent.$parent
+    }
+    parent.$children.push(vm)
+	}
+  vm.$parent = parent
+  //...
+}
+</code></pre>
+<p>在 <code>vm._update</code> 的过程中，把当前的 <code>vm</code> 赋值给 <code>activeInstance</code>，同时通过 <code>prevActiveInstance</code> 保存上一次的 <code>activeInstance</code>。实际上<code>prevActiveInstance</code> 和当前的 <code>vm</code> 是一个父子关系，当一个 <code>vm</code> 实例完成它的所有子树的 patch/update 过程后，<code>activeInstance</code> 会回到它的父实例，这样就完美地保证了 <code>createComponentInstanceForVnode</code> 整个深度遍历过程中，我们在实例化子组件的时候能传入当前子组件的父 Vue 实例，并在 <code>_init</code> 的过程中，通过 <code>vm.$parent</code> 把这个父子关系保存</p>
+<blockquote>
+<p>Patch 流程：createComponent -> 子组件初始化 -> 子组件 render 生成渲染 VNode -> 子组件 patch（遍历子组件渲染 VNode，递归，直到普通节点，执行 insert）</p>
+<p>activeInstance 当前激活实例，vm.$vnode 为组件占位 vnode，vm._vnode 为组件渲染 vnode</p>
+</blockquote>
+<p>最终，将组件初始化过程和上篇普通节点初始化过程合并得到以下流程，一个完整 Vue 项目以此循环完成渲染</p>
+<pre><code>     +----------+
+     | new Vue()|
+     +----+-----+
+          |
+     +----v-----+      +--------+    +---------+    +-----------------+
++----&gt;  _init   +------&gt; $mount +----&gt; compile +----&gt; render function +--+
+|    +----------+      +--------+    +---------+    +-----------------+  |
+|                                                                        |
+|                                                                        |
+|    +-----+     +-----------+     +-------+ update +-------+    +-------v-------+
+|    | DOM &lt;-----+ createElm &lt;-----+ patch &lt;--------+ vnode &lt;----+ createElement +--+
+|    +-----+     +-----------+     +-------+        +-------+    +---------------+  |
+|                                                                                   |
+|                                                                                   |
+|    +-------------------------------+  init +-----------+    +--------+   +--------v--------+
++----+createComponentInstanceForVnode&lt;-------+ createElm &lt;----+ CVnode &lt;---+ createComponent |
+     +-------------------------------+       +-----------+    +--------+   +-----------------+
+
+</code></pre>
+</div>
+</main>
+</body>
+</html>

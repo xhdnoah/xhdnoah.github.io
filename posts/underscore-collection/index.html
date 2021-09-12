@@ -1,0 +1,397 @@
+<!doctype html><html><head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<link rel=stylesheet type=text/css href=/css/bootstrap.min.css>
+<link rel=stylesheet type=text/css href=/css/style.css>
+<link rel=stylesheet href=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/themes/prism.css>
+<link rel=icon type=image/png href=/images/favicon.ico>
+<link rel=icon href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%221em%22 font-size=%2280%22>🌕</text></svg>">
+<script src=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/components/prism-core.min.js></script>
+<script src=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/plugins/autoloader/prism-autoloader.min.js></script>
+<script defer src=https://use.fontawesome.com/93f8d6d0b2.js></script>
+<title>电子月亮 | UnderScore: 集合</title>
+</head>
+<body>
+<header class="header fadeInTop content">
+<a class=no-highlight href=/>ElectronicMoon</a>
+</header>
+<main class=main>
+<div class="content-container fadeInTop">
+<div class=content>
+<h1 class=title>UnderScore: 集合</h1>
+<div class=post-meta>
+<time datetime="2019-03-19 00:00:00 +0000 UTC">Mar 19, 2019</time>
+</div>
+<p><strong>_.each</strong></p>
+<pre><code class=language-js>_.each = _.forEach = function(obj,iteratee, context){
+  // 首先要优化回调过程
+  iteratee = optimizeCb(iteratee, context)
+  var i, length
+  if(isArrayLike(obj)){
+    for(i = 0, length = obj.length; i &lt; length; i++){
+      // 数组迭代回调传入三参数：迭代值，迭代索引，迭代对象
+      iteratee(obj[i], i, obj)
+    }
+  } else {
+    var keys = _.keys(obj)
+    for (i = 0, length = keys.length; i &lt; length; i++){
+      // 对象迭代回调传入三参数：迭代值，迭代 key，迭代对象
+      iteratee(obj[keys[i],keys[i],obj)
+    }
+  }
+  // 返回对象自身，以便进行链式构造
+}
+</code></pre>
+<h2 id=map-reduce>map-reduce</h2>
+<p>map reduce 是函数式编程的重要组成，是一种对列表的操作思路。</p>
+<ul>
+<li><strong>map</strong>（映射）：一个映射过程就是将各个元素按照规则逐个映射为新的元素</li>
+<li><strong>reduce</strong>（规约）：一个规约过程迭代每个元素按照规则合并到一个目标对象上</li>
+</ul>
+<h3 id=map-在-underscore-中的实现>map 在 underscore 中的实现</h3>
+<ul>
+<li>创建一个新列表或元素</li>
+<li>遍历原列表或原对象的值，用指定的函数 <code>func</code> 作用于每个遍历到的元素，输出一个新的元素放入新列表或对象中</li>
+</ul>
+<pre><code class=language-js>_.map = _.collect = function (obj, iteratee, context) {
+  iteratee = cb(iteratee, context);
+  var keys = !isArrayLike(obj) &amp;&amp; _.keys(obj),
+    length = (keys || obj).length,
+    results = Array(length); // 定长初始化数组
+  for (var index = 0; index &lt; length; index++) {
+    var currentKey = keys ? keys[index] : index;
+    results[index] = iteratee(obj[currentKey], currentKey, obj);
+  }
+  return results;
+};
+</code></pre>
+<h3 id=reduce-在-underscore-中的实现>reduce 在 underscore 中的实现</h3>
+<p>underscore 创建了一个内部函数 <code>createReducer</code> 用来创建 reduce 函数，完成：</p>
+<ul>
+<li>区分 reduce 的方向 <code>dir</code>，是从序列开端开始做规约过程，还是从序列末端开始做</li>
+<li>判断用户在使用 <code>_.reduce</code> 或 <code>_.reduceRight</code> 时，是否传入了第三个参数，即是否传入了规约起点，判断结果由 <code>initial</code> 变量标识</li>
+</ul>
+<p>对于一个 reduce 函数，其执行过程大致如下：</p>
+<ul>
+<li>设置一个变量 <code>memo</code> 用以缓存当前规约过程的结果，如果用户未初始化 <code>memo</code>，则 <code>memo</code> 为序列的一个参数。遍历当前集合，对最近迭代到的元素按传入的 <code>func</code> 进行规约操作，刷新 <code>memo</code></li>
+<li>规约过程完成，返回 <code>memo</code></li>
+</ul>
+<pre><code class=language-js>var createReduce = function (dir) {
+  var reducer = function (obj, iteratee, memo, initial) {
+    var keys = !isArrayLike(obj) &amp;&amp; _.keys(obj),
+      length = (keys || obj).length,
+      index = dir &gt; 0 ? 0 : length - 1;
+    // 如果 reduce 没有初始化 memo，则默认为首个元素（从左开始则为第一个元素，从右则为最后一个元素）
+    if (!initial) {
+      memo = obj[keys ? keys[index] : index];
+      index += dir;
+    }
+    for (; index &gt;= 0 &amp;&amp; index &lt; length; index += dir) {
+      // 执行 reduce 回调，刷新当前值
+      memo = iteratee(memo, obj[currentKey], currentKey, obj);
+    }
+    return memo;
+  };
+  return function (obj, iteratee, memo, context) {
+    // 如果参数正常，则代表已经初始化了 memo
+    var initial = arguments.length &gt;= 3;
+    // 所有传入的回调都要通过 optimizeCb 进行优化
+    // reducer 因为引入累加器，所以优化函数的第三个参数传入了 4
+    // 这样，新的迭代回调第一个参数就是当前的累加结果
+    // _.reduce([1,2,3],function(prev,current){})
+    return reducer(obj, optimizeCb(iteratee, context, 4), memo, initial);
+  };
+};
+</code></pre>
+<p>最终，，underscore 暴露给了两个方向的 reduce API 给用户：</p>
+<pre><code class=language-js>// 从左到右规约
+_.reduce = _.fold1 = _.inject = createReduce(1);
+// 由右至左规约
+_.reduceRight = _.foldr = createReduce(-1);
+</code></pre>
+<h3 id=查询>查询</h3>
+<p>对于元素位置查询，underscore 提供以下 API：</p>
+<ul>
+<li><code>_.indexOf</code></li>
+<li><code>_.lastIndexOf</code></li>
+<li><code>_.findIndex</code></li>
+<li><code>_.findLastIndex</code></li>
+<li><code>_.sortedIndex</code></li>
+</ul>
+<blockquote>
+<p><code>_.indexOf</code> 及 <code>_.lastIndexOf</code> 只支持对于数组元素的搜索</p>
+</blockquote>
+<p>对于元素查询。underscroe 提供以下 API：</p>
+<ul>
+<li><code>_.find</code> = <code>_.detect</code></li>
+<li><code>_.findWhere</code></li>
+<li><code>_.where</code></li>
+</ul>
+<p>如果集合是对象，即集合是键值对构成的，则提供以下 API</p>
+<ul>
+<li><code>_findKey</code></li>
+<li><code>_.pluck</code></li>
+</ul>
+<p>对于判断元素是否存在，underscore 提供以下 API</p>
+<ul>
+<li><code>_.contains</code></li>
+</ul>
+<h3 id=createindexfinder><code>createIndexFinder</code></h3>
+<p>underscore 通过内置的工厂函数 <code>createIndexFinder</code> 创建一个索引查询器，<code>_.indexOf</code> 及 <code>_.lastIndexOf</code> 正是由该函数创建</p>
+<p><code>createIndexFinder(dir, predicateFind, sortedIndex)</code> 接收三个参数</p>
+<ul>
+<li>dir：查询方向，<code>_.indexOf</code> 正向查询，<code>_lastIndexOf</code> 反向查询</li>
+<li>predicateFind：真值检测函数，该函数只有在查询元素不是数字时（<code>NaN</code>) 才会使用</li>
+<li>sortedIndex：有序数组的索引获得函数，如果设置了该参数，将假定数组已经有序，从而更加高效地通过针对有序数组的查询函数（比如二分查找）来优化查询性能</li>
+</ul>
+<pre><code class=language-js>var createIndexFinder = function(dir, predicateFind, sortedIndex){
+  return function (array, item, idx){
+    var i = 0, length = getLength(array)
+    // 如果 idx 为 Number，则规定查找位置的起始点
+    if(tyepof idx == 'number'){
+      if(dir &gt; 0){
+          // 正向查找，重置查找起始点
+        i = idx &gt;= 0 ? idx : Math.max(idx + length , i)
+      } else {
+          // 反向查找，重置 length 值
+        length = idx &gt;= 0 ? Math.min(idx + 1, length) : idx + length + 1
+      } else if(sortedIndex &amp;&amp; idx &amp;&amp; length){
+        // 能用二分查找加速的条件
+        idx = sortedIndex(array, item)
+        return array[index] === item ? idx : -1
+      }
+      // 特判，如果查找元素是 NaN （if item !== item then item =&gt; NaN
+      if(item !== item){
+        idx = predicateFind(slice.call(array, i, length), _.isNaN)
+        return idx &gt;= 0 ? idx + i : -1
+      }
+      // O(n) 遍历查找，特判排除了 NaN，可以放心 === 判断相等
+      for(idx = dir &gt; 0 ? i : length - 1; idx &gt;= 0 &amp;&amp; idx &lt; length; idx += dir){
+        if (array[idx] === item) return idx
+      }
+      return -1
+    }
+  }
+}
+</code></pre>
+<p><strong><code>_.indexOf(array,item,sorted)</code></strong></p>
+<pre><code class=language-js>_.indexOf = createIndexFinder(1,_.findIndex,_.sortedIndex)
+</code></pre>
+<p><strong><code>_.lastIndexOf(array,item,sorted)</code></strong></p>
+<pre><code class=language-js>_.lastIndexOf = createIndexFinder(-1,_.findLastIndex)
+</code></pre>
+<p><strong><code>_.sortedIndex(array, obj, iteratee)</code></strong> 使用二分法查找</p>
+<blockquote>
+<p>根据比较条件 iteratee 查询 obj 在 array 中的位置</p>
+</blockquote>
+<pre><code class=language-js>_.sortedIndex = function (array, obj, iteratee, context) {
+  iteratee = cb(iteratee, context, 1);
+  var value = iteratee(obj);
+  var low = 0,
+    high = getLength(array);
+  while (low &lt; high) {
+    var mid = Math.floor((low + high) / 2);
+    if (iteratee(array[mid]) &lt; value) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+};
+</code></pre>
+<p><strong><code>createPredicateIndexFinder</code></strong></p>
+<p>除了 <code>createIndexFinder</code>，underscore 还内置了一个 <code>createPredicateIndexFinder</code> 的工厂函数，不仅能查询直接量在集合中的位置，也通过一个真值检测函数查找位置</p>
+<pre><code class=language-js>var createPredicateIndexFinder = function (dir) {
+  return function (array, predicate, context) {
+    predicate = cb(predicate, context);
+    var length = getLength(array);
+    var index = dir &gt; 0 ? 0 : length - 1;
+    for (; index &gt; 0 &amp;&amp; index &lt; length; index += dir) {
+      if (predicate(array[index], index, array)) return index;
+    }
+    return -1;
+  };
+};
+</code></pre>
+<p><strong><code>_.findIndex(array, predicate)</code></strong> 根据条件 <code>predicate</code> ，查询元素在 <code>array</code> 中出现的位置</p>
+<p><code>_.findIndex = createPredicateIndexFinder(1)</code></p>
+<p>用例：</p>
+<pre><code class=language-js>// 下面调用不会返回3，因为 12 会被修正为 _.property(12)
+_.findIndex([4, 6, 8, 12], 12);
+// =&gt; -1
+
+_.findIndex([4, 6, 8, 12], function (value) {
+  return value === 0;
+}); // =&gt; 3
+</code></pre>
+<p><strong><code>_.findLastIndex(array, predicate)</code></strong></p>
+<p><code>_.findLastIndex = createPredicateIndexFinder(-1)</code></p>
+<p><strong><code>_.findKey(obj, predicate)</code></strong>：返回 obj 中第一个满足条件的 <code>predicate</code> 的 key</p>
+<pre><code class=language-js>_.findKey = function (obj, predicate, context) {
+  predicate = cb(predicate, context);
+  var keys = _.keys(obj),
+    key;
+  for (var i = 0, length = keys.length; i &lt; length; i++) {
+    key = keys[i];
+    if (predicate(obj[key], key, obj)) return key;
+  }
+};
+</code></pre>
+<p>用例：</p>
+<pre><code class=language-js>var student = {
+  name: &quot;xyz&quot;,
+  age: 18,
+};
+_.findKey(student, function (value, key, obj) {
+  return value === 18;
+}); // =&gt; &quot;age&quot;
+</code></pre>
+<p><strong><code>_.find(obj, predicate) = _.detect</code></strong>：obj 中满足条件 predicate 的元素</p>
+<pre><code class=language-js>_.find = _.detect = function (obj, predicate, context) {
+  var keyFinder = isArrayLike(obj) ? _.findIndex : _.findKey;
+  var key = keyFinder(obj, predicate, context);
+  if (key !== void 0 &amp;&amp; key !== -1) return obj[key];
+};
+</code></pre>
+<p><code>_.find</code> 既能检索数组（利用 <code>_.findIndex</code> 先确定元素下标），又能检索对象（利用 <code>_findKey</code> 先确定 key）</p>
+<h3 id=where>where</h3>
+<p>在 SQL 中，我们通常利用到 <code>where</code> 关键字：</p>
+<p><code>select * from users where password="123456" and username="xyz"</code></p>
+<p>在 JavaScript 中想模拟一个 <code>where</code> 函数，就需要为其传递两个参数：</p>
+<ul>
+<li><code>table</code>：集合 <code>users</code></li>
+<li><code>attrs</code>：属性匹配列表 <code>{password: '12345',username='xyz'}</code></li>
+</ul>
+<p><code>where</code> 的核心过程依然是集合过滤，所以 <code>Array.prototype.filter</code> 将是 <code>where</code> 的核心：</p>
+<pre><code class=language-js>function where(table, attrs) {
+  // 遍历 table
+  return table.filter(function (elem) {
+    // 观察当前遍历到的对象是否满足 where 条件
+    return Object.keys(attrs).every(function (attr) {
+      return elem[attr] === attrs[attr];
+    });
+  });
+}
+
+// 测试
+var users = [
+  { name: &quot;wxj&quot;, age: 18, sex: &quot;male&quot; },
+  { name: &quot;zxy&quot;, age: 18, sex: &quot;male&quot; },
+  { name: &quot;zhangsan&quot;, age: 14, sex: &quot;famale&quot; },
+];
+var ret = where(users, { age: 18, sex: &quot;male&quot; });
+// =&gt; [
+// {name: 'wxj', age: 18, sex: 'male'},
+// {name: 'zxy', age: 18, sex: 'male'},
+//]
+</code></pre>
+<p><strong><code>_.where(obj, attrs)</code></strong>：获得满足 <code>attrs</code> 的元素</p>
+<pre><code class=language-js>    _.where = function(obj. attrs){
+      return _.filter(obj, _matcher(attrs))
+    }
+</code></pre>
+<p><code>_.where</code> 的实现十分简洁，利用到了 <code>_.filter</code> 进行迭代，真值检测函数用到了 <code>_.matcher</code></p>
+<p><strong><code>_.matcher(attrs)</code></strong>：返回一个校验过程，用以检验对象属性是否匹配给定的属性列表</p>
+<pre><code class=language-js>_.matcher = _.matches = function (attrs) {
+  attrs = _.extendOwn({}, attrs);
+  return function (obj) {
+    return _.isMatch(obj, attrs);
+  };
+};
+</code></pre>
+<p><code>_.matcher</code> 接受传入的属性列表 <code>attrs</code>，最终返回一个校验过程，通过<code>_.isMatch</code> 来校验 <code>obj</code> 中的属性的是否与 <code>attrs</code> 的属性相匹配</p>
+<p><strong><code>_.isMatch(obj, attrs)</code></strong></p>
+<pre><code class=language-js>_.isMatch = function (object, attrs) {
+  var keys = _.keys(attrs),
+    length = keys.length;
+  if (object == null) return !length;
+  var obj = Object(object);
+  for (var i = 0; i &lt; length; i++) {
+    var key = keys[i];
+    // 一旦遇到 value 不等，或 attrs 中的 key 不在 obj 中，立即返回 false
+    if (attrs[key] !== obj[key] || !(key in obj)) return false;
+  }
+  return true;
+};
+</code></pre>
+<p><strong><code>_.findWhere(obj, attrs)</code></strong>：与 <code>where</code> 类似，但只返回第一条查询到的记录</p>
+<pre><code class=language-js>_.findWhere = function (obj, attrs) {
+  return _.find(obj, _.matcher(attrs));
+};
+</code></pre>
+<p><strong><code>_.contains(obj, item, fromIndex)=._includes=_.include</code></strong>：判断 obj 是否包含 item，可设置查询起点</p>
+<pre><code class=language-js>_.contains = _.includes = _.include = function(obj, item, fromIndex, guard){
+  if(!isArrayLike(obj) obj = _.values(obj))
+  if(typeof fromIndex != 'number' || guard) fromIndex = 0
+  return _.indexOf(obj, item, fromIndex) &gt;= 0
+}
+</code></pre>
+<h2 id=underscore-模拟一段-sql>underscore 模拟一段 SQL</h2>
+<blockquote>
+<p><code>SELECT username, id FROM users where age&lt;30 group by sex;</code></p>
+</blockquote>
+<ul>
+<li><code>_.groupBy</code></li>
+<li><code>_.indexBy</code></li>
+<li><code>_.countBy</code></li>
+<li><code>_.partition</code></li>
+</ul>
+<p>以上函数由内部函数 <code>group</code> 返回创建</p>
+<h3 id=groupbehavior-partition><code>group(behavior, partition)</code></h3>
+<ul>
+<li><code>behavior</code> 分类规则，包括<code>_.groupBy,_.indexBy,_.countBy</code></li>
+<li><code>partition</code> 是否将集合一分为二</li>
+</ul>
+<pre><code class=language-js>var group = function (behavior, partition) {
+  return function (obj, iteratee, context) {
+    var result = partition ? [[], []] : {};
+    iteratee = cb(iteratee, context);
+    _.each(obj, function (value, index) {
+      var key = iteratee(value, index, obj);
+      behavior(result, value, key);
+    });
+    return result;
+  };
+};
+</code></pre>
+<p><strong><code>_.groupBy(obj, iteratee)</code></strong> 对 obj 按照 iteratee 分组</p>
+<p>当 <code>iteratee</code> 确定了一个分组，<code>_.groupBy</code> ：</p>
+<ul>
+<li>如果分组结果中存在该分组，将元素追加进该分组</li>
+<li>否则新建一个分组，并将元素放入</li>
+</ul>
+<pre><code class=language-js>_.groupBy = group(function(result, value, key){
+  if(_.has(result, key)) result[key].puah(value) else result[key] = [value]
+})
+</code></pre>
+<p><strong><code>_.indexBy(obj, iteratee)</code></strong> 对 obj 按照 iteratee 进行索引</p>
+<pre><code class=language-js>_.indexBy = group(function(result, value, key){
+  result[key] = value
+})
+</code></pre>
+<p><strong><code>_.countBy(obj, iteratee)</code></strong> 对 obj 按照 iteratee 进行计数</p>
+<pre><code class=language-js>_.countBy = group(function (result, value, key) {
+  if (_.has(result, key)) result[key]++;
+  else result[key] = 1;
+});
+</code></pre>
+<p>用例：</p>
+<pre><code class=language-js>_.countBy([1, 2, 3, 4, 5], function (num) {
+  return num % 2 == 0 ? &quot;even&quot; : &quot;odd&quot;;
+});
+// =&gt; {odd: 3, even: 2}
+</code></pre>
+<p><strong><code>_.partition(obj, iteratee)</code></strong> 将 obj 按照 iteratee 进行分组</p>
+<pre><code class=language-js>_.partition = group(function (result, value, pass) {
+  // 分组后的行为
+  result[pass ? 0 : 1].push(value);
+}, true);
+</code></pre>
+<p>用例：</p>
+<pre><code class=language-js>_.partition([0, 1, 2, 3, 4, 5], function (num) {
+  return num % 2 !== 0;
+});
+// =&gt; [[1,3,5],[0,2,4]]
+</code></pre>
+</div>
+</main>
+</body>
+</html>

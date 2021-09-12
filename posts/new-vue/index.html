@@ -1,0 +1,666 @@
+<!doctype html><html><head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<link rel=stylesheet type=text/css href=/css/bootstrap.min.css>
+<link rel=stylesheet type=text/css href=/css/style.css>
+<link rel=stylesheet href=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/themes/prism.css>
+<link rel=icon type=image/png href=/images/favicon.ico>
+<link rel=icon href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%221em%22 font-size=%2280%22>🌕</text></svg>">
+<script src=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/components/prism-core.min.js></script>
+<script src=https://cdn.jsdelivr.net/npm/prismjs@1.24.1/plugins/autoloader/prism-autoloader.min.js></script>
+<script defer src=https://use.fontawesome.com/93f8d6d0b2.js></script>
+<title>电子月亮 | Vue 初始化：从 new Vue(...) 到 DOM Tree</title>
+</head>
+<body>
+<header class="header fadeInTop content">
+<a class=no-highlight href=/>ElectronicMoon</a>
+</header>
+<main class=main>
+<div class="content-container fadeInTop">
+<div class=content>
+<h1 class=title>Vue 初始化：从 new Vue(...) 到 DOM Tree</h1>
+<div class=post-meta>
+<time datetime="2019-12-18 00:00:00 +0000 UTC">Dec 18, 2019</time>
+</div>
+<p>这篇文章将从我自己的理解描述一个 Vue.js 项目是怎么从零开始初始化的主线过程，以关键函数的调用栈为线索，会略过很多繁琐的段落，分析 Vue.js 在初始化过程中的关键节点，我觉得阅读源码不能像看小说那样，线性地追寻无限的细节，而是在脑海中建立关键节点的索引和核心原理的理解，这样在需要回头具体分析某一处或者对哪部分感兴趣的时候就可以快速定位到</p>
+<h3 id=构造函数初始化>构造函数初始化</h3>
+<p>一个 Vue.js 应用由一个根实例和可嵌套的组件树构成，而组件都是可复用的 Vue 实例，可以从入口文件 <code>entry-runtime-with-compiler.js -> runtime/index.js -> core/index.js -> instance/index.js</code> 这条线找到 Vue 构造函数</p>
+<pre><code class=language-javascript>import { initMixin } from './init'
+import { stateMixin } from './state'
+import { renderMixin } from './render'
+import { eventsMixin } from './events'
+import { lifecycleMixin } from './lifecycle'
+import { warn } from '../util/index'
+
+function Vue (options) {
+  if (process.env.NODE_ENV !== 'production' &amp;&amp;
+    !(this instanceof Vue)
+  ) {
+    warn('Vue is a constructor and should be called with the `new` keyword')
+  }
+  this._init(options)
+}
+
+initMixin(Vue)
+stateMixin(Vue)
+eventsMixin(Vue)
+lifecycleMixin(Vue)
+renderMixin(Vue)
+</code></pre>
+<p>Vue 把初始化、数据状态、事件、生命周期、渲染相关的逻辑拆分为单独的模块，分别挂载到 Vue.prototype 原型上，构造函数本身只执行 init 方法</p>
+<p>除了实例方法，在 core/index.js 中的<code>initGlobalAPI</code> 还给 Vue 本身添加全局的 API，如 <code>Vue.set, Vue.nextTick, Vue.util</code> 等，其中 <code>Vue.options._base = Vue</code> 是保持对 Vue 构造函数的引用，会用作子组件的创建。</p>
+<h3 id=vue-实例初始化>Vue 实例初始化</h3>
+<pre><code class=language-javascript>Vue.property._init = function(options?: Object){
+  const vm: Component = this
+  vm._uid = uid++
+  vm._isVue = true
+	// merge options
+  if(options &amp;&amp; options._isComponent){
+    initInternalComponent(vm, options)
+  } else {
+    vm.$options = mergeOptions(
+      resolveConstructorOptions(vm.constructor),
+      options || {},
+      vm
+    )
+  }
+	// expose real self
+	vm._self = vm
+	initLifecycle(vm)
+	initEvents(vm)
+	initRender(vm)
+	callHook(vm, 'beforeCreate')
+	initInjections(vm)
+	initState(vm)
+	initProvide(vm)
+	callHook(vm, 'created')
+	...
+	if(vm.$options.el){
+		vm.$mount(vm.$options.el)
+	}
+}
+</code></pre>
+<p><strong>mergeOptions</strong></p>
+<p><code>resolveConstructorOptions</code> 递归获取所有组件的默认参数，<code>mergeOptions</code> 规范化用户参数然后合并用户参数和默认参数，用户参数就是你写的 name,data,props,method 和生命周期钩子等，合并后的所有参数指向 <code>vm.$options</code></p>
+<p><strong>beforeCreate</strong></p>
+<p>此时还不能访问数据，可以完成和后端交互的初始化操作</p>
+<p><strong>initData</strong></p>
+<blockquote>
+<p>initState 包含初始化 data props methods computed watch，这里以 initData 举例</p>
+</blockquote>
+<pre><code class=language-javascript>function initData(vm: Component){
+  let data = vm.$options.data
+  data = vm._data = typeof data === 'function'
+    ? getData(data, vm)
+  	: data || {}
+  // proxy data on instance
+  // check if keys are repeated
+  const keys = Object.keys(data)
+  const props = vm.$options.props
+  const methods = vm.$options.methods
+  let i = keys.length
+  while (i--) {
+    const key = keys[i]
+    if (process.env.NODE_ENV !== 'production') {
+      if (methods &amp;&amp; hasOwn(methods, key)) {
+        warn(
+          `Method &quot;${key}&quot; has already been defined as a data property.`,
+          vm
+        )
+      }
+    }
+    if (props &amp;&amp; hasOwn(props, key)) {
+      process.env.NODE_ENV !== 'production' &amp;&amp; warn(
+        `The data property &quot;${key}&quot; is already declared as a prop. ` +
+        `Use prop default value instead.`,
+        vm
+      )
+    } else if (!isReserved(key)) {
+      proxy(vm, `_data`, key)
+    }
+  }
+  observe(data, true)
+}
+</code></pre>
+<p>这里从 vm.$options 中取出数据后，指向 <code>vm._data</code>，校验 data 的键值是否和 method props 重复，通过 proxy 函数代理 <code>vm._data</code> 下的私有数据，这样当我们访问 <code>this.msg</code> 就相当于访问 <code>this._data.msg</code>，最后在 data 对象中添加 Observer, 绑定数据劫持</p>
+<p><strong>proxy</strong></p>
+<pre><code class=language-javascript>const sharedPropertyDefinition = {
+	enumerable: true,
+	configurable: true,
+	get: noop,
+	set: noop
+}
+
+export function proxy(target: Object, sourceKey: string, key: string){
+	sharedPropertyDefinition.get = function proxyGetter(){
+		return this[sourceKey][key]
+	}
+  sharedPropertyDefinition.set = function proxySetter(val){
+    this[sourceKey][key] = val
+  }
+  Object.defineProperty(target, key, sharedPropertyDefinition)
+}
+</code></pre>
+<p>proxy 的实现通过 Object.defineProperty 对每一个 data 项设置 getter 和 setter</p>
+<h3 id=vm-实例挂载>vm 实例挂载</h3>
+<p><strong>vm.$mount</strong></p>
+<pre><code class=language-javascript>Vue.property.$mount = function(
+	el?: string | Element,
+	hydrating?: boolean
+): Component {
+	el = el &amp;&amp; inBrowser ? query(el) : undefined
+	return mountComponent(this, el, hydrating)
+}
+</code></pre>
+<pre><code class=language-javascript>export function mountComponent(
+	vm: Component,
+	el: ?Element,
+	hydrating?: boolean
+): Component {
+	vm.$el = el
+	...
+	callHook(vm, 'beforeMount')
+	let updateComponent
+	updateComponent = () =&gt; {
+    // 执行 _render 生成 VNode
+    vm_update(vm._render(), hydrating)
+	}
+  ...
+  // renderWatcher
+  new Watcher(vm, updateComponent, noop, {
+    before(){
+      if(vm._isMounted){
+        callHook(vm, 'beforeUpdate')
+      }
+    }
+  }, true)
+
+  return vm
+}
+</code></pre>
+<p>compiler 版本的实例挂载最终会实例化一个渲染 Watcher，在其初始化以及检测到数据变化的时候执行回调函数 <code>updateComponent</code>，<code>updateComponent</code> 调用 <code>vm._render()</code> 生成 Virtual DOM，最终调用 <code>vm._update</code> 更新到真实 DOM</p>
+<p><strong>vm._render</strong></p>
+<pre><code class=language-javascript>Vue.prototype._render = function (): VNode {
+	const vm: Component = this
+	const { render, _parentVnode } = vm.$options
+	if(_parentVnode){
+		vm.$scopedSlots = normalizeScopedSlots(
+			_parentVnode.data.scopedSlots,
+			vm.$slots,
+			vm.$scopedSlots
+		)
+	}
+
+  vm.$vnode = _parentVnode
+  let vnode
+  try {
+    currentRenderingInstance = vm
+    // 执行 createElement
+    vnode = render.call(vm._renderProxy, vm.$createElement)
+  } catch(e) {
+    handleError(e, vm, `render`)
+    // return error render result
+    ...
+  } finally {
+    currentRenderingInstance = null
+  }
+  ...
+  vnode.parent = _parentVnode
+  return vnode
+}
+</code></pre>
+<p><code>vm._render</code> 核心是调用<strong>用户手写或编译生成的 render 函数</strong>，并将 createElement 函数作为参数传入，当我们使用模板语法时</p>
+<pre><code class=language-vue>// 模板编译
+&lt;div id=&quot;app&quot;&gt;
+ {{ message }}
+&lt;/div&gt;
+</code></pre>
+<p>template 最终都会编译成 render 函数，相当于</p>
+<pre><code class=language-javascript>// 手写 render 函数, createElement 作为参数传入创建 VNode
+var app = new Vue({
+	el: '#app',
+	render(createElement){
+		return createElement('div', {
+			attrs: {
+				id: '#app'
+			}
+		}, this.message)
+	}
+})
+</code></pre>
+<p><strong>renderProxy</strong></p>
+<p>render 调用绑定了 <code>vm._renderProxy</code> 中的 this 指向，<code>vm._renderProxy</code> 在生产环境指向 vm，在开发环境对 vm 的读写操作进行劫持并检测错误</p>
+<pre><code class=language-javascript>const hasHandler = {
+  ...
+  warnNonPresent(target, key)
+}
+
+const getHandler = {
+  ...
+  warnNonPresent(target, key)
+}
+
+initProxy = function initProxy (vm) {
+	if(hasProxy){
+		const options = vm.$options
+    const handlers = options.render &amp;&amp; options.render._withStripped
+    	? getHandler
+    	: hasHandler
+    vm._renderProxy = new Proxy(vm, handlers)
+	} else {
+    vm._renderProxy = vm
+  }
+}
+</code></pre>
+<p><code>warnNonPresent()</code> 表示属性或方法未在实例上定义</p>
+<p><strong>Virtual DOM</strong></p>
+<p>Virtual DOM 是一个用 JS 对象描述的虚拟 DOM节点，Vue.js 用 VNode 类来描述 Virtual DOM</p>
+<pre><code class=language-javascript>export default class VNode {
+  tag: string | void;
+  data: VNodeData | void;
+  children: ?Array&lt;VNode&gt;;
+  text: string | void;
+  elm: Node | void;
+  ns: string | void;
+  context: Component | void; // rendered in this component's scope
+  key: string | number | void;
+  componentOptions: VNodeComponentOptions | void;
+  componentInstance: Component | void; // component instance
+  parent: VNode | void; // component placeholder node
+
+  // strictly internal
+  raw: boolean; // contains raw HTML? (server only)
+  isStatic: boolean; // hoisted static node
+  isRootInsert: boolean; // necessary for enter transition check
+  isComment: boolean; // empty comment placeholder?
+  isCloned: boolean; // is a cloned node?
+  isOnce: boolean; // is a v-once node?
+  asyncFactory: Function | void; // async component factory function
+  asyncMeta: Object | void;
+  isAsyncPlaceholder: boolean;
+  ssrContext: Object | void;
+  fnContext: Component | void; // real context vm for functional nodes
+  fnOptions: ?ComponentOptions; // for SSR caching
+  fnScopeId: ?string; // functional scope id support
+
+  constructor (
+    tag?: string,
+    data?: VNodeData,
+    children?: ?Array&lt;VNode&gt;,
+    text?: string,
+    elm?: Node,
+    context?: Component,
+    componentOptions?: VNodeComponentOptions,
+    asyncFactory?: Function
+  ) {
+    this.tag = tag
+    this.data = data
+    this.children = children
+    this.text = text
+    this.elm = elm
+    this.ns = undefined
+    this.context = context
+    this.fnContext = undefined
+    this.fnOptions = undefined
+    this.fnScopeId = undefined
+    this.key = data &amp;&amp; data.key
+    this.componentOptions = componentOptions
+    this.componentInstance = undefined
+    this.parent = undefined
+    this.raw = false
+    this.isStatic = false
+    this.isRootInsert = true
+    this.isComment = false
+    this.isCloned = false
+    this.isOnce = false
+    this.asyncFactory = asyncFactory
+    this.asyncMeta = undefined
+    this.isAsyncPlaceholder = false
+  }
+
+  // DEPRECATED: alias for componentInstance for backwards compat.
+  /* istanbul ignore next */
+  get child (): Component | void {
+    return this.componentInstance
+  }
+}
+</code></pre>
+<p>Vue.js 中的 VNode 还分为<strong>占位符 VNode</strong> 和 <strong>渲染 VNode</strong>，占位符 VNode 就是组件在渲染过程中用来占位的父 VNode，可以理解为组件的根节点，渲染 VNode 就是有真实 DOM 映射关系的 DOM 节点。在实例属性中， <code>vm.$vnode</code> 指向占位符节点，<code>vm._vnode</code> 指向渲染节点</p>
+<h4 id=创建-vnode>创建 VNode</h4>
+<p>Vue.js 利用 createElement 方法创建 VNode，createElement 封装了 _createElement 方法，后者主要完成两件事：子节点的规范化和 VNode 的实例化，以 vuejs.org 官网的 demo 为例</p>
+<pre><code class=language-javascript>// @returns {VNode}
+createElement(
+  // {String | Object | Function}
+  // An HTML tag name, component options, or async
+  // function resolving to one of these. Required.
+  'div',
+
+  // {Object}
+  // A data object corresponding to the attributes
+  // you would use in a template. Optional.
+  {
+    // (see details in the next section below)
+  },
+
+  // {String | Array}
+  // Children VNodes, built using `createElement()`,
+  // or using strings to get 'text VNodes'. Optional.
+  [
+    'Some text comes first.',
+    createElement('h1', 'A headline'),
+    createElement(MyComponent, {
+      props: {
+        someProp: 'foobar'
+      }
+    })
+  ]
+)
+</code></pre>
+<pre><code class=language-javascript>export function _createElement (
+  context: Component,
+  tag?: string | Class&lt;Component&gt; | Function | Object,
+  data?: VNodeData,
+  children?: any,
+  normalizationType?: number
+): VNode | Array&lt;VNode&gt; {
+  if (isDef(data) &amp;&amp; isDef((data: any).__ob__)) {
+    process.env.NODE_ENV !== 'production' &amp;&amp; warn(
+      `Avoid using observed data object as vnode data: ${JSON.stringify(data)}\n` +
+      'Always create fresh vnode data objects in each render!',
+      context
+    )
+    return createEmptyVNode()
+  }
+  // object syntax in v-bind
+  if (isDef(data) &amp;&amp; isDef(data.is)) {
+    tag = data.is
+  }
+  if (!tag) {
+    // in case of component :is set to falsy value
+    return createEmptyVNode()
+  }
+  // warn against non-primitive key
+  if (process.env.NODE_ENV !== 'production' &amp;&amp;
+    isDef(data) &amp;&amp; isDef(data.key) &amp;&amp; !isPrimitive(data.key)
+  ) {
+    if (!__WEEX__ || !('@binding' in data.key)) {
+      warn(
+        'Avoid using non-primitive value as key, ' +
+        'use string/number value instead.',
+        context
+      )
+    }
+  }
+  // support single function children as default scoped slot
+  if (Array.isArray(children) &amp;&amp;
+    typeof children[0] === 'function'
+  ) {
+    data = data || {}
+    data.scopedSlots = { default: children[0] }
+    children.length = 0
+  }
+  if (normalizationType === ALWAYS_NORMALIZE) {
+    children = normalizeChildren(children)
+  } else if (normalizationType === SIMPLE_NORMALIZE) {
+    children = simpleNormalizeChildren(children)
+  }
+  let vnode, ns
+  if (typeof tag === 'string') {
+    let Ctor
+    ns = (context.$vnode &amp;&amp; context.$vnode.ns) || config.getTagNamespace(tag)
+    if (config.isReservedTag(tag)) {
+      // platform built-in elements
+      vnode = new VNode(
+        config.parsePlatformTagName(tag), data, children,
+        undefined, undefined, context
+      )
+    } else if (isDef(Ctor = resolveAsset(context.$options, 'components', tag))) {
+      // component
+      vnode = createComponent(Ctor, data, context, children, tag)
+    } else {
+      // unknown or unlisted namespaced elements
+      // check at runtime because it may get assigned a namespace when its
+      // parent normalizes children
+      vnode = new VNode(
+        tag, data, children,
+        undefined, undefined, context
+      )
+    }
+  } else {
+    // direct component options / constructor
+    vnode = createComponent(tag, data, context, children)
+  }
+  if (Array.isArray(vnode)) {
+    return vnode
+  } else if (isDef(vnode)) {
+    if (isDef(ns)) applyNS(vnode, ns)
+    if (isDef(data)) registerDeepBindings(data)
+    return vnode
+  } else {
+    return createEmptyVNode()
+  }
+}
+</code></pre>
+<p><strong>normalizeChildren</strong></p>
+<pre><code class=language-javascript>if(normalizationType === ALWAYS_NORMALIZE){
+    // 将嵌套的 children 数组拍平
+    children = normalizationChildren(children)
+} else if (normalizationType === SIMPLE_NORMALIZE){
+    // simpleNormalize 将二维数组拍平
+    children = simpleNormalizeChildren(children)
+}
+</code></pre>
+<p>最终都是将 children 变成类型为 VNode 的一维数组</p>
+<p><strong>vnode</strong></p>
+<pre><code class=language-javascript>let vnode, ns
+if (typeof tag === 'string') {
+  let Ctor
+  ns = (context.$vnode &amp;&amp; context.$vnode.ns) || config.getTagNamespace(tag)
+  if (config.isReservedTag(tag)) {
+    // platform built-in elements
+    vnode = new VNode(
+      config.parsePlatformTagName(tag), data, children,
+      undefined, undefined, context
+    )
+  } else if (isDef(Ctor = resolveAsset(context.$options, 'components', tag))) {
+    // component
+    vnode = createComponent(Ctor, data, context, children, tag)
+  } else {
+    // unknown or unlisted namespaced elements
+    // check at runtime because it may get assigned a namespace when its
+    // parent normalizes children
+    vnode = new VNode(
+      tag, data, children,
+      undefined, undefined, context
+    )
+  }
+} else {
+  // direct component options / constructor
+  vnode = createComponent(tag, data, context, children)
+}
+</code></pre>
+<p>创建 VNode 时对 tag 进行判断，如果 tag 是 string 类型还是 Component 类型，string 类型下再判断是内置节点还是已注册的组件名。根据 tag 类型决定创建普通 VNode 还是组件 VNode，组件初始化的过程在</p>
+<p><strong>update</strong></p>
+<p>回到 updateComponent，创建好的 VNode 还需要通过 <code>vm._update</code> 渲染为真实 DOM。<code>vm._update</code> 的核心是调用 <code>vm.__patch__</code> ，在首次渲染和数据更新的时候执行</p>
+<pre><code class=language-javascript>Vue.prototype._update = function (vnode: VNode, hydrating?: boolean) {
+  const vm: Component = this
+  const prevEl = vm.$el
+  const prevVnode = vm._vnode
+  const prevActiveInstance = activeInstance
+  activeInstance = vm
+  vm._vnode = vnode
+  // Vue.prototype.__patch__ is injected in entry points
+  // based on the rendering backend used.
+  if (!prevVnode) {
+    // initial render
+    vm.$el = vm.__patch__(vm.$el, vnode, hydrating, false /* removeOnly */)
+  } else {
+    // updates
+    vm.$el = vm.__patch__(prevVnode, vnode)
+  }
+  activeInstance = prevActiveInstance
+  // update __vue__ reference
+  if (prevEl) {
+    prevEl.__vue__ = null
+  }
+  if (vm.$el) {
+    vm.$el.__vue__ = vm
+  }
+  // if parent is an HOC, update its $el as well
+  if (vm.$vnode &amp;&amp; vm.$parent &amp;&amp; vm.$vnode === vm.$parent._vnode) {
+    vm.$parent.$el = vm.$el
+  }
+  // updated hook is called by the scheduler to ensure that children are
+  // updated in a parent's updated hook.
+}
+</code></pre>
+<p><strong>patch 与函数柯里化</strong></p>
+<blockquote>
+<p>《Mostly adequate guide》总结函数柯里化——— 只传递给函数一部分参数来调用它，让它返回一个函数去处理剩下的参数；柯里化为实现多参函数提供了一个递归降解的实现思路——把接受多个参数的函数变换成接受一个单一参数（最初函数的第一个参数）的函数，并且返回接受余下的参数而且返回结果的新函数</p>
+</blockquote>
+<p>Vue.js 可以跨平台运行，不同的平台拥有不同的 nodeOps 方法和modules 属性 。利用函数柯里化可以避免每次执行 patch 都要<code>if...else...</code>判断平台条件，通过 <code>createPatchFunction</code> 在返回真正的 patch 函数之前就将平台之间的差异一次性抹平</p>
+<pre><code class=language-javascript>// nodeOps: 操作 DOM 方法
+// modules: DOM 各类属性、类、事件、样式、钩子函数等
+export const patch: Function = createPatchFunction({ nodeOps, modules})
+
+//patch.js
+export function createPatchFunction (backend){
+  let i, j
+  const cbs = {}
+
+  const {modules, nodeOps } = backend
+
+  for(i = 0; i &lt; hooks.length; ++i){
+    cbs[hooks[i]] = []
+    for(j = 0; j &lt; modules.length; ++j){
+      if(isDef(modules[j][hooks[i]])){
+        cbs[hooks[i]].push(modules[j][hooks[i]])
+      }
+    }
+  }
+  ... 辅助函数
+  // oldVnode: 不存在/一个真实 DOM
+  // vnode: _render 执行返回的 VNode 节点
+  return function patch(oldVnode, vnode, hyrating, removeOnly){
+    const isRealElement = isDef(oldVnode.nodeType)
+    if(!isRealElement &amp;&amp; sameVnode(oldVnode, vnode)){
+      patchVnode(oldVnode, vnode, insertedVnodeQueue, removeOnly)
+    } else {
+      if(isRealElement){
+        if(oldVnode.nodeType === 1 &amp;&amp; oldVnode.hasAttribute(SSR_ATTR)){
+          oldVnode.removeAttribute(SSR_ATTR)
+          hydrating = true
+        }
+        if(isTrue(hydrating)){
+          //...SSR
+        }
+        // create an empty node and replace it
+        oldVnode = emptyNodeAt(oldVnode)
+      }
+
+      // replacing existing element
+      const oldElm = oldVnode.elm
+      const parentElm = nodeOps.parentNode(oldElm)
+
+      createElm(
+      	vnode,
+        insertedVnodeQueue,
+        ...,
+        nodeOps.nextSibling(oldElm)
+      )
+    }
+  }
+}
+</code></pre>
+<p>在首次初始化的时候，<code>oldVnode</code> 即 <code>vm.$el</code> 实际上是一个容器，<code>isRealElement</code> 为 true，再通过 <code>empthNodeAt</code> 将 <code>oldVnode</code> 转换为 <code>VNode</code> ，最后调用 <code>createElm </code> 创建真实 DOM 插入到父节点中</p>
+<p><strong>createElm</strong></p>
+<pre><code class=language-javascript>function createElm (
+	vnode,
+	insertedVnodeQueue,
+	parentElm,
+	refElm,
+	nested,
+	ownerArray,
+	index
+){
+	if(isDef(vnode.elm) &amp;&amp; isDef(ownerArray)){
+		vnode = ownerArray[index] = cloneVNode(vnode)
+	}
+	if(createComponent(vnode, insertedVnodeQueue, parentElm, refElm)){
+		return
+	}
+
+	const data = vnode.data
+	const children = vnode.children
+	const tag = vnode.tag
+	if(isDef(tag)){
+		...
+	}
+	// 创建占位符元素
+	vnode.elm = nodeOps.createElement(tag, vnode)
+	setScope(vnode)
+
+  createChildren(vnode, children, insertedVnodeQueue)
+  if(isDef(data)){
+    invokeCreateHooks(vnode, insertedVnodeQueue)
+  }
+  insert(parentElm, vnode.elm, refElm)
+}
+</code></pre>
+<p><strong>createChildren</strong></p>
+<p><code>createChildren</code> 创建子元素，深度优先遍历子虚拟节点，递归调用 <code>createElm</code>，遍历过程中把 <code>vnode.elm</code> 作为父容器的 DOM 节点占位符传入</p>
+<pre><code class=language-javascript>function createChildren(vnode, children, insertedVnodeQueue){
+	if(Array.isArray(children)){
+		if(process.env.NODE_ENV !== 'production'){
+			checkDuplicateKeys(children)
+		}
+		for(let i = 0; i &lt; children.length; ++i){
+			createElm(children[i], insertedVnodeQueue, vnode.elm, null, true, children, i)
+		}
+	} else if(isPrimitive(vnode.text)){
+    nodeOps.appendChild(vnode.elm, nodeOps.createTextNode(String(vnode.text)))
+  }
+}
+</code></pre>
+<p><strong>invokeCreateHooks</strong></p>
+<p>执行所有 create 钩子并把 <code>vnode</code> push 到 <code>insertedVnodeQueue</code></p>
+<pre><code>function invokeCreateHooks(vnode, insertedVnodeQueue){
+	for(let i = 0; i &lt; cbs.create.length; ++i){
+		cbs.create[i](emptyNode, vnode)
+	}
+  i = vnode.data.hook	// Reuse variable
+  if(isDef(i)){
+    if(isDef(i.create)) i.create(emptyNode, vnode)
+    if(isDef(i.insert)) insertedVnodeQueue.push(vnode)
+  }
+}
+</code></pre>
+<p><strong>insert</strong></p>
+<p>最终调用 <code>insert</code> 方法把 DOM 插入父节点，DOM 节点的插入顺序是先子后父，直到整个 DOM 树插入 <code>oldVnode.elm</code> 的父元素 Body</p>
+<pre><code class=language-javascript>function insert(parent, elm, ref){
+	if(isDef(parent)){
+		if(isDef(ref)){
+			if(ref.parentNode === parent){
+				nodeOps.insertedBefore(parent, elm, ref)
+			}
+		} else {
+			nodeOps.appendChild(parent, elm)
+		}
+	}
+}
+</code></pre>
+<p>初始化过程到了这里终于渲染成了最终的真实 DOM，关键节点的流程图如下所示，其中从 <code>createElement</code> 开始对组件的初始化过程在下篇介绍</p>
+<pre><code>    +----------+ init +--------+    +---------+    +-----------------+
+    | new Vue()+------&gt; $mount +----&gt; compile +----&gt; render function +--+
+    +----------+      +--------+    +---------+    +-----------------+  |
+                                                                        |
+                                                                        |
++-----+    +-----------+     +-------+ update +-------+    +------------v--+
+| DOM &lt;----+ createElm &lt;-----+ patch &lt;--------+ vnode &lt;----+ createElement |
++-----+    +-----------+     +-------+        +-------+    +---------------+
+
+</code></pre>
+</div>
+</main>
+</body>
+</html>
