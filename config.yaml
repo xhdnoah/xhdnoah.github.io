@@ -1,0 +1,9 @@
+baseURL: 'https://electronicmoon.space/'
+languageCode: en-us
+title: 电子月亮
+paginate: 5
+markup:
+  highlight:
+    # disable hugo's code highlighter
+    codeFences: false
+    guessSyntax: true

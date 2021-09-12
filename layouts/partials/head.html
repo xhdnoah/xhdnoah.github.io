@@ -1,0 +1,15 @@
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="stylesheet" type="text/css" href="/css/bootstrap.min.css">
+	<link rel="stylesheet" type="text/css" href="/css/style.css">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.24.1/themes/prism.css">
+	<link rel="icon" type="image/png" href="/images/favicon.ico" />
+	<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%221em%22 font-size=%2280%22>🌕</text></svg>">
+	<script src="https://cdn.jsdelivr.net/npm/prismjs@1.24.1/components/prism-core.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/prismjs@1.24.1/plugins/autoloader/prism-autoloader.min.js"></script>
+	<script defer src="https://use.fontawesome.com/93f8d6d0b2.js"></script>
+	{{ $title := print .Site.Title " | " .Title }}
+	{{ if .IsHome }}{{ $title = .Site.Title }}{{ end }}
+	<title>{{ $title }}</title>
+</head>
